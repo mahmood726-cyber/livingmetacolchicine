@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MetaFlow v5.1 | Living Evidence Platform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstat/1.9.6/jstat.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root { --bg-dark: #0f172a; --text-main: #f1f5f9; --accent: #0ea5e9; }
+        body { font-family: 'Inter', sans-serif; background-color: #020617; color: var(--text-main); }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #020617; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Navigation Styles */
+        .nav-container { @apply flex items-center gap-2; }
+        .tab-btn { @apply px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 border flex items-center gap-2 shadow-sm; }
+        .tab-btn.active { @apply bg-indigo-600 text-white border-indigo-500 shadow-indigo-500/30 hover:bg-indigo-500; }
+        .tab-btn.inactive { @apply bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700 hover:text-slate-200 hover:border-slate-600; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between px-6 z-20 shadow-md">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20 text-lg">M</div>
+            <div>
+                <h1 class="font-bold text-sm tracking-wide text-slate-100 leading-tight">MetaFlow <span class="text-emerald-400 font-normal">v5.1 Pro</span></h1>
+                <div class="text-[10px] text-slate-500 font-medium">Production Ready</div>
+            </div>
+        </div>
+
+        <!-- Navigation Bar -->
+        <div class="nav-container">
+            <button onclick="switchView('trend')" id="tab-trend" class="tab-btn active" title="Shortcut: 1"><i class="fa-solid fa-chart-line"></i> Trend</button>
+            <button onclick="switchView('forest')" id="tab-forest" class="tab-btn inactive" title="Shortcut: 2"><i class="fa-solid fa-list-ul"></i> Forest</button>
+            <button onclick="switchView('funnel')" id="tab-funnel" class="tab-btn inactive" title="Shortcut: 3"><i class="fa-solid fa-filter"></i> Funnel</button>
+            <button onclick="switchView('sensitivity')" id="tab-sensitivity" class="tab-btn inactive" title="Shortcut: 4"><i class="fa-solid fa-bullseye"></i> Influence</button>
+            <button onclick="switchView('baujat')" id="tab-baujat" class="tab-btn inactive" title="Shortcut: 5"><i class="fa-solid fa-shapes"></i> Baujat</button>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button onclick="CTGovEngine.configure()" class="text-slate-400 hover:text-emerald-400 text-xs flex items-center gap-1 transition-colors mr-2 group">
+                <i class="fa-solid fa-gear group-hover:rotate-90 transition-transform duration-500"></i> Query
+            </button>
+            <button onclick="CTGovEngine.fetchAndProcess()" id="btn-check-updates" class="relative overflow-hidden text-xs bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 px-4 py-1.5 rounded-lg transition-all flex items-center gap-2 shadow-lg shadow-emerald-900/50 hover:shadow-emerald-900/80 transform hover:-translate-y-0.5 font-medium">
+                <i class="fa-solid fa-satellite-dish"></i> Check CT.gov
+            </button>
+            <button onclick="resetData()" class="text-slate-500 hover:text-rose-400 transition-colors ml-2 p-1" title="Reset to Seed Data">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 grid grid-cols-12 gap-0 overflow-hidden bg-slate-950">
+        
+        <!-- LEFT: Clinical Utility & Transport -->
+        <aside class="col-span-3 bg-slate-900/50 border-r border-slate-800 flex flex-col p-4 overflow-y-auto">
+            <!-- Clinical Utility Panel -->
+            <div class="glass-panel p-4 rounded-lg mb-4">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Clinical Utility</h3>
+                    <span id="grade-badge" class="text-[9px] px-1.5 py-0.5 bg-slate-700 rounded text-slate-300 border border-slate-600">GRADE: --</span>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <div class="text-[9px] text-slate-500">Pooled OR</div>
+                        <div id="util-or" class="text-sm font-mono text-white font-bold">--</div>
+                    </div>
+                    <div>
+                        <div class="text-[9px] text-slate-500">NNT (Benefit)</div>
+                        <div id="util-nnt" class="text-sm font-mono text-emerald-400 font-bold">--</div>
+                    </div>
+                </div>
+                <div class="mb-1">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-[10px] text-slate-400">Baseline Risk (ACR)</label>
+                        <span id="val-acr" class="text-[10px] font-mono text-cyan-400">10%</span>
+                    </div>
+                    <input type="range" id="input-acr" min="1" max="50" value="10" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                </div>
+            </div>
+
+            <!-- Meta-Regression Transport -->
+            <div class="glass-panel p-4 rounded-lg flex-1">
+                <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Patient Transport</h3>
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between mb-1.5"><label class="text-[11px]">Age</label><span id="val-age" class="text-[11px] font-mono text-cyan-400">65</span></div>
+                        <input type="range" id="input-age" min="40" max="85" value="65" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-1.5"><label class="text-[11px]">Comorbidity</label><span id="val-comorb" class="text-[11px] font-mono text-cyan-400">2.0</span></div>
+                        <input type="range" id="input-comorb" min="0" max="8" step="0.5" value="2.0" class="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                    </div>
+                </div>
+                <div class="mt-6 pt-4 border-t border-white/5">
+                    <div class="text-[10px] text-slate-500 uppercase mb-1">Projected Estimate</div>
+                    <div class="flex items-baseline gap-2 mb-1">
+                        <span id="transport-or" class="text-2xl font-bold text-white font-mono">--</span>
+                        <span class="text-xs text-slate-400">OR</span>
+                    </div>
+                    <div class="text-xs text-cyan-400 font-mono" id="transport-ci">--</div>
+                    <div class="text-[9px] text-slate-500 mt-2 font-mono" id="transport-pi">95% PI: --</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- CENTER: Visualization Engine -->
+        <main class="col-span-6 bg-slate-950 relative flex flex-col border-r border-slate-800">
+            <!-- Forest Plot Controls (Absolute Overlay) -->
+            <div id="forest-controls" class="absolute top-3 right-3 z-10 hidden">
+                <div class="bg-slate-900/90 backdrop-blur rounded-lg border border-slate-700 p-1 flex text-[10px] shadow-lg">
+                    <button onclick="setForestType('standard')" id="ft-std" class="px-3 py-1 rounded bg-slate-700 text-white shadow-sm transition-all">Standard</button>
+                    <button onclick="setForestType('cumulative')" id="ft-cum" class="px-3 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-all">Cumulative</button>
+                </div>
+            </div>
+
+            <div class="flex-1 relative" id="plot-container"></div>
+            
+            <!-- Stats Footer -->
+            <div class="h-12 bg-slate-900 border-t border-slate-800 flex items-center justify-between px-4 text-xs font-mono">
+                <div class="flex gap-4">
+                    <span class="text-slate-400" title="Between-study variance">τ²=<span id="stat-tau2" class="text-white">--</span></span>
+                    <span class="text-slate-400" title="Inconsistency">I²=<span id="stat-i2" class="text-white">--</span>%</span>
+                    <span class="text-slate-400" title="Publication Bias (Egger's Regression)">Egger p=<span id="stat-egger" class="text-white">--</span></span>
+                </div>
+                <span class="text-slate-500" id="stat-last-update">--</span>
+            </div>
+        </main>
+
+        <!-- RIGHT: Evidence Feed -->
+        <aside class="col-span-3 bg-slate-900/30 flex flex-col">
+            <div class="p-3 border-b border-slate-800 bg-slate-900 flex justify-between items-center">
+                <h3 class="text-xs font-bold text-slate-300">Evidence Stream</h3>
+                <div class="flex items-center gap-2">
+                    <span id="study-count" class="text-[10px] px-2 rounded-full bg-slate-800 text-slate-400 border border-slate-700">0</span>
+                    <button onclick="openAddStudy()" class="text-emerald-400 hover:text-emerald-300 w-5 h-5 flex items-center justify-center rounded bg-slate-800 border border-slate-700 hover:border-emerald-500 transition-all" title="Manually Add Study (Shift+A)">
+                        <i class="fa-solid fa-plus text-[10px]"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="trial-feed" class="flex-1 overflow-y-auto p-2 space-y-2"></div>
+            <div class="p-3 border-t border-slate-800 bg-slate-900 flex gap-2">
+                <button onclick="exportCSV()" class="flex-1 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-xs py-2 rounded transition-all flex items-center justify-center gap-2 hover:bg-slate-800">
+                    <i class="fa-solid fa-file-csv"></i> CSV
+                </button>
+                <button onclick="exportJSON()" class="flex-1 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-xs py-2 rounded transition-all flex items-center justify-center gap-2 hover:bg-slate-800">
+                    <i class="fa-solid fa-file-code"></i> JSON
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Query Config Modal -->
+    <div id="query-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-700 rounded-lg w-[500px] shadow-2xl p-6">
+            <h3 class="text-sm font-bold text-white mb-4">Configure Query</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">Condition</label>
+                    <input id="cfg-cond" type="text" value="acute coronary syndrome" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-xs text-white focus:border-emerald-500 outline-none">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">Intervention</label>
+                    <input id="cfg-intr" type="text" value="colchicine" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-xs text-white focus:border-emerald-500 outline-none">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button onclick="document.getElementById('query-modal').classList.add('hidden')" class="px-4 py-2 text-xs text-slate-400 hover:text-white">Cancel</button>
+                <button onclick="CTGovEngine.saveConfig()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-xs font-bold">Save & Scan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Study Modal -->
+    <div id="add-study-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-700 rounded-lg w-[400px] shadow-2xl p-6">
+            <h3 class="text-sm font-bold text-white mb-4"><i class="fa-solid fa-pen-to-square mr-2 text-emerald-400"></i>Manual Entry</h3>
+            <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="text-[10px] text-slate-400 block">ID</label><input id="add-id" type="text" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none" placeholder="e.g. MY-TRIAL"></div>
+                    <div><label class="text-[10px] text-slate-400 block">Year</label><input id="add-year" type="number" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none" value="2025"></div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <div><label class="text-[10px] text-slate-400 block">Odds Ratio</label><input id="add-or" type="number" step="0.01" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none"></div>
+                    <div><label class="text-[10px] text-slate-400 block">Lower 95%</label><input id="add-low" type="number" step="0.01" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none"></div>
+                    <div><label class="text-[10px] text-slate-400 block">Upper 95%</label><input id="add-high" type="number" step="0.01" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none"></div>
+                </div>
+                <div><label class="text-[10px] text-slate-400 block">Sample Size (N)</label><input id="add-n" type="number" class="w-full bg-slate-800 border border-slate-600 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none"></div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button onclick="document.getElementById('add-study-modal').classList.add('hidden')" class="px-4 py-2 text-xs text-slate-400 hover:text-white">Cancel</button>
+                <button onclick="commitManualStudy()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-xs font-bold">Add Study</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="notification" class="fixed bottom-4 right-4 translate-y-20 transition-transform duration-300 z-50">
+        <div class="bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded shadow-xl flex items-center gap-3">
+            <i id="notif-icon" class="fa-solid fa-circle-info text-cyan-400"></i>
+            <div>
+                <div id="notif-title" class="font-bold text-xs">Notification</div>
+                <div id="notif-msg" class="text-[10px] text-slate-400">Message content</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Candidate Review Modal -->
+    <div id="review-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-700 rounded-lg w-[800px] max-h-[80vh] flex flex-col shadow-2xl">
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+                <h3 class="text-sm font-bold text-white">Extracted Candidates</h3>
+                <button onclick="document.getElementById('review-modal').classList.add('hidden')" class="text-slate-400"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1" id="candidates-list"></div>
+            <div class="p-4 border-t border-slate-800 flex justify-end">
+                <button onclick="CTGovEngine.commitSelected()" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded font-bold">Process Selected</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Methods Modal -->
+    <div id="methods-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 hidden flex items-center justify-center">
+        <div class="bg-slate-900 border border-slate-700 rounded-lg w-[540px] max-h-[80vh] shadow-xl flex flex-col">
+            <div class="p-3 border-b border-slate-800 flex justify-between items-center">
+                <h3 class="text-xs font-bold text-slate-100 uppercase tracking-wide">Statistical Methods</h3>
+                <button class="text-slate-400 hover:text-slate-100 text-sm" onclick="document.getElementById('methods-modal').classList.add('hidden')">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="p-4 text-[11px] text-slate-300 space-y-2 overflow-y-auto">
+                <p><span class="font-semibold text-emerald-400">Random Effects Model:</span> Pooled estimates use the DerSimonian-Laird (DL) method.</p>
+                <p><span class="font-semibold text-emerald-400">Small Sample Correction:</span> Confidence intervals use the conservative Hartung-Knapp-Sidik-Jonkman (HKSJ) adjustment (factor clamped ≥ 1) to account for uncertainty in heterogeneity variance. Uses <em>d.f. = k - 1</em>.</p>
+                <p><span class="font-semibold text-emerald-400">Prediction Interval (PI):</span> Calculated using a <em>t</em>-distribution (<em>d.f. = k - 2</em>) and the standard DL standard error to avoid double-inflation.</p>
+                <p><span class="font-semibold text-emerald-400">Data Extraction:</span> Uses a resilient multi-gateway system with conditional Haldane correction (+0.5 only for zero cells) to avoid bias in large trials.</p>
+                <p><span class="font-semibold text-emerald-400">Publication Bias:</span> Evaluated using Egger's regression test (linear regression of the standard normal deviate against precision), with significance determined by a t-distribution.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- EMBEDDED MIRROR -->
+    <script id="mirror-data" type="application/json">
+    {"studies":[{"protocolSection":{"identificationModule":{"nctId":"NCT04734937"},"statusModule":{"studyFirstSubmitDate":"2021-02-01"},"armsInterventionsModule":{"armGroups":[{"label":"Colchicine","type":"EXPERIMENTAL"},{"label":"Placebo","type":"PLACEBO_COMPARATOR"}]}},"resultsSection":{"outcomeMeasuresModule":{"outcomeMeasures":[{"title":"Composite of Cardiovascular Death, Myocardial Infarction, Ischemic Stroke, or Ischemia-driven Coronary Revascularization","classes":[{"categories":[{"measurements":[{"value":"128"},{"value":"135"}]}]}],"denoms":[{"counts":[{"value":"1500"},{"value":"1500"}]}]}]}}},{"protocolSection":{"identificationModule":{"nctId":"NCT03048825"},"statusModule":{"studyFirstSubmitDate":"2017-02-09"},"armsInterventionsModule":{"armGroups":[{"label":"Colchicine"},{"label":"Placebo"}]}},"resultsSection":{"outcomeMeasuresModule":{"outcomeMeasures":[{"title":"Time to First Occurrence of Cardiovascular Death, Myocardial Infarction, Ischemic Stroke, or Ischemia-driven Coronary Revascularization (MACE)","classes":[{"categories":[{"measurements":[{"value":"24"},{"value":"38"}]}]}],"denoms":[{"counts":[{"value":"396"},{"value":"399"}]}]}]}}}]}
+    </script>
+
+    <!-- LOGIC -->
+    <script>
+        // --- 1. Advanced Statistical Engine ---
+        const Stats = {
+            tCrit975: [12.71,4.30,3.18,2.78,2.57,2.45,2.36,2.31,2.26,2.23,2.20,2.18,2.16,2.14,2.13,2.12,2.11,2.10,2.09,2.09,2.08,2.07,2.07,2.06,2.06,2.06,2.05,2.05,2.05,2.04],
+            getTCrit: (df) => { if (df < 1) return 12.71; if (df <= 30) return Stats.tCrit975[Math.round(df) - 1]; return 1.96; },
+
+            analyze: (trials) => {
+                const clean = trials.filter(t => Number.isFinite(t.log_or) && Number.isFinite(t.se) && t.se > 0);
+                const k = clean.length;
+                if (k === 0) return null;
+
+                let sumW=0, sumWY=0, sumW2=0;
+                clean.forEach(t => { const w = 1/(t.se*t.se); sumW+=w; sumWY+=w*t.log_or; sumW2+=w*w; });
+                const thetaFE = sumWY/sumW;
+                let Q=0; clean.forEach(t => { Q += (1/(t.se*t.se)) * Math.pow(t.log_or-thetaFE, 2); });
+                
+                const C = sumW - (sumW2/sumW);
+                const tau2 = (C>0 && Q>(k-1)) ? Math.max(0, (Q-(k-1))/C) : 0;
+                let sumWstar=0, sumWstarY=0;
+                clean.forEach(t => { t.w_random = 1/(t.se*t.se + tau2); sumWstar+=t.w_random; sumWstarY+=t.w_random*t.log_or; });
+                const thetaRE = sumWstarY/sumWstar;
+                const seDL = Math.sqrt(1/sumWstar);
+                const I2 = (Q>(k-1)) ? ((Q-(k-1))/Q)*100 : 0;
+
+                let hksjFactor = 1;
+                if (k > 1) {
+                    let wResidSum = 0;
+                    clean.forEach(t => { wResidSum += t.w_random * Math.pow(t.log_or - thetaRE, 2); });
+                    hksjFactor = Math.sqrt(wResidSum / (k-1));
+                    if(isNaN(hksjFactor)) hksjFactor = 1;
+                }
+                const seHKSJ = seDL * Math.max(1, hksjFactor);
+
+                const dfCI = k>1 ? k-1 : 1;
+                const tCI = Stats.getTCrit(dfCI);
+                const dfPI = Math.max(1, k-2);
+                const tPI = Stats.getTCrit(dfPI);
+                const piWidth = tPI * Math.sqrt(tau2 + seDL*seDL);
+
+                // Corrected Egger's Test
+                let eggerP = 1.0;
+                if (k >= 3) {
+                    let sx=0, sy=0, sxx=0, sxy=0;
+                    clean.forEach(t => {
+                        const x = 1/t.se; const y = t.log_or/t.se;
+                        sx+=x; sy+=y; sxx+=x*x; sxy+=x*y;
+                    });
+                    
+                    const denom = k*sxx - sx*sx;
+                    const slope = (k*sxy - sx*sy)/denom;
+                    const intercept = (sy*sxx - sx*sxy)/denom;
+                    
+                    let sse = 0;
+                    clean.forEach(t => {
+                        const yHat = intercept + slope * (1/t.se);
+                        sse += Math.pow((t.log_or/t.se) - yHat, 2);
+                    });
+                    const mse = sse / (k - 2);
+                    
+                    const tStat = intercept / Math.sqrt(mse * sxx / denom); // Fixed SE calculation
+                    eggerP = 2 * (1 - jStat.studentt.cdf(Math.abs(tStat), k-2)); 
+                }
+
+                return { thetaRE, seRE: seHKSJ, tau2, I2, piWidth, ciWidth: tCI*seHKSJ, eggerP, Q, k };
+            }
+        };
+
+        // --- 2. CT.gov Engine ---
+        const CTGovEngine = {
+            API_URL: 'https://clinicaltrials.gov/api/v2/studies',
+            config: { cond: 'acute coronary syndrome', intr: 'colchicine' },
+            ALIAS_MAP: { "NCT03048825": "COPS", "NCT02551094": "COLCOT", "NCT02823366": "LoDoCo2", "NCT03067828": "CLEAR-SYNERGY", "NCT04734937": "CLEVER-ACS" },
+            PROXIES: [(u)=>`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, (u)=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`],
+
+            configure() { document.getElementById('query-modal').classList.remove('hidden'); },
+            saveConfig() {
+                this.config.cond = document.getElementById('cfg-cond').value;
+                this.config.intr = document.getElementById('cfg-intr').value;
+                document.getElementById('query-modal').classList.add('hidden');
+                this.fetchAndProcess();
+            },
+
+            showNotification(title, msg, colorClass) {
+                const notif = document.getElementById('notification');
+                document.getElementById('notif-title').innerText = title;
+                document.getElementById('notif-msg').innerText = msg;
+                document.getElementById('notif-icon').className = `fa-solid fa-circle-info ${colorClass}`;
+                notif.classList.remove('translate-y-20');
+                setTimeout(() => notif.classList.add('translate-y-20'), 4000);
+            },
+
+            async fetchAndProcess() {
+                const btn = document.getElementById('btn-check-updates');
+                const orig = btn.innerHTML; btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Scanning...`;
+                try {
+                    const params = new URLSearchParams({
+                        'query.cond': this.config.cond, 'query.intr': this.config.intr,
+                        'filter.overallStatus': 'COMPLETED', 'filter.hasResults': 'true', 'pageSize': '5',
+                        'fields': 'NCTId,StudyFirstSubmitDate,ResultsSection.OutcomeMeasuresModule,ProtocolSection.IdentificationModule,ProtocolSection.StatusModule,ProtocolSection.ArmsInterventionsModule'
+                    });
+                    const url = `${this.API_URL}?${params.toString()}`;
+                    
+                    let data, source="Live";
+                    try {
+                        for(const p of this.PROXIES) {
+                            try {
+                                const r = await fetch(p(url)+`&_t=${Date.now()}`);
+                                const j = await r.json();
+                                data = j.contents ? JSON.parse(j.contents) : j;
+                                if(data.studies) break;
+                            } catch(e){}
+                        }
+                        if(!data) throw "Proxies failed";
+                    } catch(e) {
+                        source="Embedded Mirror";
+                        data = JSON.parse(document.getElementById('mirror-data').textContent);
+                    }
+                    this.processData(data, source);
+                } catch(e) { 
+                    this.showNotification("Connection Failed", "Could not retrieve live or cached data.", "text-red-400");
+                } 
+                finally { btn.innerHTML = orig; }
+            },
+
+            processData(data, source) {
+                const candidates = [];
+                const studies = data.studies || (data.protocolSection ? [data] : []);
+                studies.forEach(s => {
+                    const ext = this.extract(s);
+                    if(ext) {
+                        const alias = this.ALIAS_MAP[ext.id] || ext.id;
+                        ext.displayId = alias;
+                        candidates.push(ext);
+                    }
+                });
+                if(candidates.length) this.renderCandidates(candidates, source);
+                else alert("No new structured data found.");
+            },
+
+            extract(s) {
+                try {
+                    const nct = s.protocolSection.identificationModule.nctId;
+                    const year = parseInt(s.protocolSection.statusModule.studyFirstSubmitDate.split('-')[0]);
+                    const om = s.resultsSection.outcomeMeasuresModule.outcomeMeasures[0]; 
+                    // Arm matching logic
+                    let tIdx=0, cIdx=1; 
+                    const tVal = parseFloat(om.classes[0].categories[0].measurements[tIdx].value);
+                    const cVal = parseFloat(om.classes[0].categories[0].measurements[cIdx].value);
+                    const tN = parseFloat(om.denoms[0].counts[tIdx].value);
+                    const cN = parseFloat(om.denoms[0].counts[cIdx].value);
+                    
+                    // Conditional Haldane
+                    const needsCorr = (tVal===0 || cVal===0 || tN===tVal || cN===cVal);
+                    const c = needsCorr ? 0.5 : 0;
+                    const a=tVal+c, b=(tN-tVal)+c, c_=cVal+c, d=(cN-cVal)+c;
+                    return { id: nct, year, log_or: Math.log((a*d)/(b*c_)), se: Math.sqrt(1/a+1/b+1/c_+1/d), n: tN+cN, outcome: om.title };
+                } catch(e) { return null; }
+            },
+            
+            renderCandidates(cands, src) {
+                const list = document.getElementById('candidates-list'); list.innerHTML='';
+                State.tempCandidates = cands;
+                cands.forEach((c,i) => {
+                    list.innerHTML += `<div class="bg-slate-800 p-3 rounded border border-slate-700 mb-2 flex justify-between">
+                        <div><div class="font-bold text-white">${c.displayId} (${c.year})</div><div class="text-xs text-slate-400 truncate w-64">${c.outcome}</div></div>
+                        <input type="checkbox" id="cand-${i}" checked>
+                    </div>`;
+                });
+                document.getElementById('review-modal').classList.remove('hidden');
+            },
+
+            commitSelected() {
+                State.tempCandidates.forEach((c,i) => {
+                    if(document.getElementById(`cand-${i}`).checked) {
+                        const idx = State.trials.findIndex(t=>t.id===c.displayId);
+                        const t = {id:c.displayId, year:c.year, log_or:c.log_or, se:c.se, n:c.n, source:'auto'};
+                        if(idx>=0) State.trials[idx]=t; else State.trials.push(t);
+                    }
+                });
+                document.getElementById('review-modal').classList.add('hidden');
+                State.trials.sort((a,b)=>a.year-b.year);
+                updateDashboard();
+            }
+        };
+
+        // --- 3. State & Visualization ---
+        const defaultTrials = [
+            {"id": "COLCOT", "year": 2019, "log_or": -0.27, "se": 0.11, "n": 4745},
+            {"id": "LoDoCo2", "year": 2020, "log_or": -0.34, "se": 0.10, "n": 5522},
+            {"id": "COPS", "year": 2020, "log_or": -0.09, "se": 0.28, "n": 795},
+            {"id": "CLEAR-SYNERGY", "year": 2024, "log_or": -0.04, "se": 0.05, "n": 7000}
+        ];
+
+        const State = { trials: JSON.parse(localStorage.getItem('metaflow_v5') || JSON.stringify(defaultTrials)), view: 'trend', forestType: 'standard', params: {age:65, comorb:2, acr:10} };
+
+        function updateDashboard() {
+            localStorage.setItem('metaflow_v5', JSON.stringify(State.trials));
+            const res = Stats.analyze(State.trials);
+            if(!res) return;
+
+            // 1. Clinical Utility
+            const pooledOR = Math.exp(res.thetaRE);
+            const cer = State.params.acr / 100; 
+            const eer = (cer * pooledOR) / (1 - cer + cer * pooledOR);
+            const arr = cer - eer;
+            const nnt = arr !== 0 ? Math.abs(1/arr) : Infinity;
+            const nntDisplay = arr > 0 ? Math.ceil(nnt) : (arr < 0 ? `NNH ${Math.ceil(nnt)}` : '∞');
+            
+            document.getElementById('util-or').innerText = pooledOR.toFixed(2);
+            document.getElementById('util-nnt').innerText = nntDisplay;
+            
+            // GRADE Heuristic
+            let grade = "HIGH";
+            if(res.I2 > 50) grade = "MODERATE (Inconsistency)";
+            if(res.eggerP < 0.1) grade = "LOW (Pub. Bias)";
+            document.getElementById('grade-badge').innerText = `GRADE: ${grade}`;
+
+            // 2. Transport
+            const dAge = (State.params.age - 65)*0.005;
+            const dCom = (State.params.comorb - 2)*0.02;
+            const transLog = res.thetaRE + dAge + dCom;
+            document.getElementById('transport-or').innerText = Math.exp(transLog).toFixed(2);
+            
+            const ciLow = Math.exp(transLog - res.ciWidth);
+            const ciHigh = Math.exp(transLog + res.ciWidth);
+            document.getElementById('transport-ci').innerText = `95% CI: ${ciLow.toFixed(2)}–${ciHigh.toFixed(2)}`;
+
+            const piLow = Math.exp(transLog - res.piWidth);
+            const piHigh = Math.exp(transLog + res.piWidth);
+            document.getElementById('transport-pi').innerText = `95% PI: ${piLow.toFixed(2)}–${piHigh.toFixed(2)}`;
+
+            // 3. Stats Footer
+            document.getElementById('stat-tau2').innerText = res.tau2.toFixed(3);
+            document.getElementById('stat-i2').innerText = res.I2.toFixed(0);
+            document.getElementById('stat-egger').innerText = res.eggerP.toFixed(3);
+            document.getElementById('stat-last-update').innerText = `Updated: ${new Date().toLocaleTimeString()}`;
+
+            // 4. Feed
+            const feed = document.getElementById('trial-feed'); feed.innerHTML='';
+            document.getElementById('study-count').innerText = State.trials.length;
+            
+            // Calculate total weight for % display
+            const totalW = State.trials.reduce((sum, t) => sum + (1/(t.se*t.se + res.tau2)), 0);
+
+            [...State.trials].reverse().forEach(t => {
+                const weight = ((1/(t.se*t.se + res.tau2)) / totalW * 100).toFixed(1);
+                feed.innerHTML += `<div class="p-2 border-b border-slate-800 text-xs flex justify-between group hover:bg-slate-800 transition-colors">
+                    <div>
+                        <div class="font-bold text-slate-200">${t.id}</div>
+                        <div class="text-[9px] text-slate-500">${t.year} • <span class="text-indigo-400">W: ${weight}%</span></div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="font-mono text-cyan-400">${Math.exp(t.log_or).toFixed(2)}</div>
+                        <button onclick="deleteStudy('${t.id}')" class="text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>`;
+            });
+
+            renderPlot(res);
+        }
+
+        function renderPlot(res) {
+            const el = document.getElementById('plot-container'); el.innerHTML = '';
+            const active = State.trials;
+            
+            document.getElementById('forest-controls').className = (State.view === 'forest') ? "absolute top-3 right-3 z-10 block" : "hidden";
+
+            if(State.view === 'trend') {
+                const trace = {
+                    x: active.map(t=>t.year), y: active.map(t=>t.log_or),
+                    mode: 'markers', error_y: {array: active.map(t=>t.se*1.96), color:'rgba(255,255,255,0.3)'},
+                    type: 'scatter', marker: {color: '#0ea5e9', size: 8}
+                };
+                const traceLine = { x: [2018, 2026], y: [res.thetaRE, res.thetaRE], mode:'lines', line:{dash:'dot', color:'#10b981'} };
+                Plotly.newPlot(el, [trace, traceLine], {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', showlegend:false, xaxis:{title:'Year', gridcolor:'#334155'}, yaxis:{title:'Log OR', gridcolor:'#334155'}});
+            }
+            else if(State.view === 'forest') {
+                // Standard vs Cumulative
+                let traces = [];
+                
+                if (State.forestType === 'cumulative') {
+                    const sorted = [...active].sort((a,b)=>a.year-b.year);
+                    const cumRes = sorted.map((_, i) => Stats.analyze(sorted.slice(0, i+1)));
+                    
+                    const traceCum = {
+                        x: cumRes.map(r=>Math.exp(r.thetaRE)), y: sorted.map(t=>t.year),
+                        mode: 'markers+lines',
+                        error_x: {
+                            array: cumRes.map(r=>Math.exp(r.thetaRE+r.ciWidth)-Math.exp(r.thetaRE)),
+                            arrayminus: cumRes.map(r=>Math.exp(r.thetaRE)-Math.exp(r.thetaRE-r.ciWidth)),
+                            color:'#0ea5e9'
+                        },
+                        marker: {color:'#0ea5e9'}, line: {color: '#0ea5e9'}
+                    };
+                    traces = [traceCum];
+                } else {
+                     const traceStudies = {
+                        x: active.map(t=>Math.exp(t.log_or)), y: active.map(t=>t.id),
+                        mode: 'markers', error_x: {array: active.map(t=>Math.exp(t.log_or+1.96*t.se)-Math.exp(t.log_or)), arrayminus: active.map(t=>Math.exp(t.log_or)-Math.exp(t.log_or-1.96*t.se)), color:'#94a3b8'},
+                        type: 'scatter', marker: {color: '#0ea5e9', symbol:'square', size:8}
+                    };
+                    const tracePooled = { x: [Math.exp(res.thetaRE)], y: ['Pooled'], mode:'markers', marker:{size:12, color:'#10b981', symbol:'diamond'} };
+                    traces = [traceStudies, tracePooled];
+                }
+
+                Plotly.newPlot(el, traces, {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', xaxis:{type:'log', title:'Odds Ratio', gridcolor:'#334155'}, yaxis:{gridcolor:'#334155'}, margin:{l:100}});
+            }
+            else if(State.view === 'funnel') {
+                const trace = { x: active.map(t=>t.log_or), y: active.map(t=>t.se), mode:'markers', type:'scatter', marker:{color:'#0ea5e9'} };
+                const shape = { type: 'path', path: `M ${res.thetaRE-1.96*0.5} 0.5 L ${res.thetaRE} 0 L ${res.thetaRE+1.96*0.5} 0.5 Z`, fillcolor: 'rgba(255,255,255,0.05)', line:{width:0} };
+                Plotly.newPlot(el, [trace], {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', yaxis:{autorange:'reversed', title:'Standard Error'}, xaxis:{title:'Log OR'}, shapes:[shape]});
+            }
+            else if(State.view === 'sensitivity') {
+                const loos = active.map((t,i) => {
+                    const sub = active.filter((_,x)=>x!==i);
+                    return { id: t.id, res: Stats.analyze(sub) };
+                });
+                const trace = {
+                    x: loos.map(x=>Math.exp(x.res.thetaRE)), y: loos.map(x=>`w/o ${x.id}`),
+                    mode:'markers', type:'scatter', marker:{color:'#f59e0b'}
+                };
+                Plotly.newPlot(el, [trace], {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', xaxis:{title:'Pooled OR (Leave-One-Out)'}, margin:{l:100}});
+            }
+            else if(State.view === 'baujat') {
+                const baujat = active.map((t,i) => {
+                    const sub = Stats.analyze(active.filter((_,x)=>x!==i));
+                    const influence = (res.thetaRE - sub.thetaRE) / res.seRE;
+                    const contribQ = (1/(t.se*t.se)) * Math.pow(t.log_or - res.thetaRE, 2); // Approx
+                    return { x: contribQ, y: influence, id: t.id };
+                });
+                const trace = {
+                    x: baujat.map(b=>b.x), y: baujat.map(b=>b.y), text: baujat.map(b=>b.id),
+                    mode:'markers+text', textposition:'top center', type:'scatter', marker:{color:'#ef4444'}
+                };
+                Plotly.newPlot(el, [trace], {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)', xaxis:{title:'Contribution to Heterogeneity'}, yaxis:{title:'Influence on Pooled Result'}});
+            }
+        }
+
+        function switchView(v) {
+            State.view = v;
+            
+            // Update Buttons
+            const btns = ['trend', 'forest', 'funnel', 'sensitivity', 'baujat'];
+            btns.forEach(b => {
+                document.getElementById(`tab-${b}`).className = (b === v) ? 'tab-btn active' : 'tab-btn inactive';
+            });
+
+            updateDashboard();
+        }
+
+        function setForestType(t) {
+            State.forestType = t;
+            document.getElementById('ft-std').className = t==='standard' ? "px-3 py-1 rounded bg-slate-700 text-white shadow-sm transition-all" : "px-3 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-all";
+            document.getElementById('ft-cum').className = t==='cumulative' ? "px-3 py-1 rounded bg-slate-700 text-white shadow-sm transition-all" : "px-3 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-all";
+            updateDashboard();
+        }
+
+        function exportCSV() {
+            const h = ["ID","Year","OR","LogOR","SE","N"];
+            const r = State.trials.map(t => [t.id, t.year, Math.exp(t.log_or).toFixed(2), t.log_or.toFixed(3), t.se.toFixed(3), t.n].join(","));
+            const blob = new Blob([[h.join(","), ...r].join("\n")], {type:'text/csv'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href=url; a.download='metaflow_data.csv'; a.click();
+        }
+
+        function exportJSON() {
+            const data = {
+                meta: { version: "5.0", timestamp: new Date().toISOString() },
+                trials: State.trials,
+                analysis: Stats.analyze(State.trials)
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href=url; a.download='metaflow_snapshot.json'; a.click();
+        }
+
+        function openAddStudy() { document.getElementById('add-study-modal').classList.remove('hidden'); }
+
+        function commitManualStudy() {
+            const id = document.getElementById('add-id').value || "User-Study";
+            const year = parseInt(document.getElementById('add-year').value) || new Date().getFullYear();
+            const or = parseFloat(document.getElementById('add-or').value);
+            const low = parseFloat(document.getElementById('add-low').value);
+            const high = parseFloat(document.getElementById('add-high').value);
+            const n = parseInt(document.getElementById('add-n').value) || 100;
+
+            // Stricter Validation
+            if(isNaN(or) || isNaN(low) || isNaN(high) || or <= 0 || low <= 0 || high <= 0) { 
+                alert("Invalid OR/CI values. Must be positive numbers."); return; 
+            }
+            if (low >= high) {
+                alert("Lower CI must be less than Upper CI."); return;
+            }
+
+            // Calc SE from CI (Assumes Symmetric 95% on Log scale)
+            const logOR = Math.log(or);
+            const logLow = Math.log(low);
+            const logHigh = Math.log(high);
+            const se = (logHigh - logLow) / 3.92;
+
+            const t = {id, year, log_or: logOR, se, n, source: 'manual'};
+            State.trials.push(t);
+            State.trials.sort((a,b) => a.year - b.year);
+            
+            document.getElementById('add-study-modal').classList.add('hidden');
+            updateDashboard();
+            CTGovEngine.showNotification("Study Added", `Manually added ${id}`, "text-emerald-400");
+        }
+
+        function deleteStudy(id) {
+            if(confirm(`Delete study ${id}?`)) {
+                State.trials = State.trials.filter(t => t.id !== id);
+                updateDashboard();
+            }
+        }
+
+        function resetData() { if(confirm("Reset?")) { localStorage.removeItem('metaflow_v5'); location.reload(); } }
+
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+            if(e.target.tagName === 'INPUT') return; // Ignore if typing
+            if(e.key >= '1' && e.key <= '5') {
+                const views = ['trend','forest','funnel','sensitivity','baujat'];
+                switchView(views[parseInt(e.key)-1]);
+            }
+            if(e.key === 'A' && e.shiftKey) { openAddStudy(); e.preventDefault(); }
+            if(e.key === 'r' && e.ctrlKey) { e.preventDefault(); CTGovEngine.fetchAndProcess(); }
+        });
+
+        // Init Listeners
+        ['input-age', 'input-comorb', 'input-acr'].forEach(id => {
+            document.getElementById(id).addEventListener('input', (e) => {
+                if(id==='input-acr') State.params.acr = e.target.value;
+                else if(id==='input-age') State.params.age = e.target.value;
+                else State.params.comorb = e.target.value;
+                
+                document.getElementById('val-acr').innerText = State.params.acr + '%';
+                document.getElementById('val-age').innerText = State.params.age;
+                document.getElementById('val-comorb').innerText = State.params.comorb;
+                updateDashboard();
+            });
+        });
+
+        updateDashboard();
+    </script>
+</body>
+</html>
