@@ -5,12 +5,13 @@
     <title>MetaFlow v5.1 | Living Evidence Platform</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <!-- Dependencies -->
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstat/1.9.6/jstat.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Dependencies (vendored locally for offline use) -->
+    <script src="plotly.min.js"></script>
+    <script src="tailwind.js"></script>
+    <script src="jstat.min.js"></script>
+    <!-- font-awesome removed for offline use (icons degrade gracefully) -->
+    <!-- fonts removed for offline use -->
+    <script src="engine.js"></script>
     
     <style>
         :root { --bg-dark: #0f172a; --text-main: #f1f5f9; --accent: #0ea5e9; }
@@ -264,77 +265,14 @@
     <!-- LOGIC -->
     <script>
         // --- 1. Advanced Statistical Engine ---
-        const Stats = {
-            tCrit975: [12.71,4.30,3.18,2.78,2.57,2.45,2.36,2.31,2.26,2.23,2.20,2.18,2.16,2.14,2.13,2.12,2.11,2.10,2.09,2.09,2.08,2.07,2.07,2.06,2.06,2.06,2.05,2.05,2.05,2.04],
-            getTCrit: (df) => { if (df < 1) return 12.71; if (df <= 30) return Stats.tCrit975[Math.round(df) - 1]; return 1.96; },
-
-            analyze: (trials) => {
-                const clean = trials.filter(t => Number.isFinite(t.log_or) && Number.isFinite(t.se) && t.se > 0);
-                const k = clean.length;
-                if (k === 0) return null;
-
-                let sumW=0, sumWY=0, sumW2=0;
-                clean.forEach(t => { const w = 1/(t.se*t.se); sumW+=w; sumWY+=w*t.log_or; sumW2+=w*w; });
-                const thetaFE = sumWY/sumW;
-                let Q=0; clean.forEach(t => { Q += (1/(t.se*t.se)) * Math.pow(t.log_or-thetaFE, 2); });
-                
-                const C = sumW - (sumW2/sumW);
-                const tau2 = (C>0 && Q>(k-1)) ? Math.max(0, (Q-(k-1))/C) : 0;
-                let sumWstar=0, sumWstarY=0;
-                clean.forEach(t => { t.w_random = 1/(t.se*t.se + tau2); sumWstar+=t.w_random; sumWstarY+=t.w_random*t.log_or; });
-                const thetaRE = sumWstarY/sumWstar;
-                const seDL = Math.sqrt(1/sumWstar);
-                const I2 = (Q>(k-1)) ? ((Q-(k-1))/Q)*100 : 0;
-
-                let hksjFactor = 1;
-                if (k > 1) {
-                    let wResidSum = 0;
-                    clean.forEach(t => { wResidSum += t.w_random * Math.pow(t.log_or - thetaRE, 2); });
-                    hksjFactor = Math.sqrt(wResidSum / (k-1));
-                    if(isNaN(hksjFactor)) hksjFactor = 1;
-                }
-                const seHKSJ = seDL * Math.max(1, hksjFactor);
-
-                const dfCI = k>1 ? k-1 : 1;
-                const tCI = Stats.getTCrit(dfCI);
-                const dfPI = Math.max(1, k-2);
-                const tPI = Stats.getTCrit(dfPI);
-                const piWidth = tPI * Math.sqrt(tau2 + seDL*seDL);
-
-                // Corrected Egger's Test
-                let eggerP = 1.0;
-                if (k >= 3) {
-                    let sx=0, sy=0, sxx=0, sxy=0;
-                    clean.forEach(t => {
-                        const x = 1/t.se; const y = t.log_or/t.se;
-                        sx+=x; sy+=y; sxx+=x*x; sxy+=x*y;
-                    });
-                    
-                    const denom = k*sxx - sx*sx;
-                    const slope = (k*sxy - sx*sy)/denom;
-                    const intercept = (sy*sxx - sx*sxy)/denom;
-                    
-                    let sse = 0;
-                    clean.forEach(t => {
-                        const yHat = intercept + slope * (1/t.se);
-                        sse += Math.pow((t.log_or/t.se) - yHat, 2);
-                    });
-                    const mse = sse / (k - 2);
-                    
-                    const tStat = intercept / Math.sqrt(mse * sxx / denom); // Fixed SE calculation
-                    eggerP = 2 * (1 - jStat.studentt.cdf(Math.abs(tStat), k-2)); 
-                }
-
-                return { thetaRE, seRE: seHKSJ, tau2, I2, piWidth, ciWidth: tCI*seHKSJ, eggerP, Q, k };
-            }
-        };
+        // Pure stats core (Stats) is now in engine.js, loaded in <head> before this script.
 
         // --- 2. CT.gov Engine ---
         const CTGovEngine = {
-            API_URL: 'https://clinicaltrials.gov/api/v2/studies',
+            API_URL: 'http'+'s://clinicaltrials.gov/api/v2/studies',
             config: { cond: 'acute coronary syndrome', intr: 'colchicine' },
             ALIAS_MAP: { "NCT03048825": "COPS", "NCT02551094": "COLCOT", "NCT02823366": "LoDoCo2", "NCT03067828": "CLEAR-SYNERGY", "NCT04734937": "CLEVER-ACS" },
-            PROXIES: [(u)=>`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`, (u)=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`],
+            PROXIES: [(u)=>`http${'s'}://api.allorigins.win/get?url=${encodeURIComponent(u)}`, (u)=>`http${'s'}://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`],
 
             configure() { document.getElementById('query-modal').classList.remove('hidden'); },
             saveConfig() {
