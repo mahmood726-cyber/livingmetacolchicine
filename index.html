@@ -343,19 +343,26 @@
                 try {
                     const nct = s.protocolSection.identificationModule.nctId;
                     const year = parseInt(s.protocolSection.statusModule.studyFirstSubmitDate.split('-')[0]);
-                    const om = s.resultsSection.outcomeMeasuresModule.outcomeMeasures[0]; 
-                    // Arm matching logic
-                    let tIdx=0, cIdx=1; 
-                    const tVal = parseFloat(om.classes[0].categories[0].measurements[tIdx].value);
-                    const cVal = parseFloat(om.classes[0].categories[0].measurements[cIdx].value);
-                    const tN = parseFloat(om.denoms[0].counts[tIdx].value);
-                    const cN = parseFloat(om.denoms[0].counts[cIdx].value);
-                    
-                    // Conditional Haldane
-                    const needsCorr = (tVal===0 || cVal===0 || tN===tVal || cN===cVal);
-                    const c = needsCorr ? 0.5 : 0;
-                    const a=tVal+c, b=(tN-tVal)+c, c_=cVal+c, d=(cN-cVal)+c;
-                    return { id: nct, year, log_or: Math.log((a*d)/(b*c_)), se: Math.sqrt(1/a+1/b+1/c_+1/d), n: tN+cN, outcome: om.title };
+                    const om = s.resultsSection.outcomeMeasuresModule.outcomeMeasures[0];
+                    const measurements = om.classes[0].categories[0].measurements;
+                    const counts = om.denoms[0].counts;
+                    // Arm labels in measurement order: prefer the outcome's own groups, else the
+                    // trial's arm groups. Match treatment/control by label rather than by position
+                    // (CT.gov arm order is not guaranteed intervention-first).
+                    const armGroups = (s.protocolSection.armsInterventionsModule && s.protocolSection.armsInterventionsModule.armGroups) || [];
+                    const labels = (om.groups && om.groups.length)
+                        ? om.groups.map(g => g.title)
+                        : armGroups.map(g => g.label);
+                    const intrRegex = new RegExp((this.config.intr || 'colchicine').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+                    const arms = Stats.pickArms(labels, intrRegex);
+                    if(!arms) return null; // fail closed: cannot identify treatment vs control arm
+                    const tVal = parseFloat(measurements[arms.tIdx].value);
+                    const cVal = parseFloat(measurements[arms.cIdx].value);
+                    const tN = parseFloat(counts[arms.tIdx].value);
+                    const cN = parseFloat(counts[arms.cIdx].value);
+                    const or2 = Stats.orFrom2x2(tVal, cVal, tN, cN);
+                    if(!or2) return null;
+                    return { id: nct, year, log_or: or2.log_or, se: or2.se, n: tN+cN, outcome: om.title };
                 } catch(e) { return null; }
             },
             
@@ -401,11 +408,11 @@
             if(!res) return;
 
             // 1. Clinical Utility
-            const pooledOR = Math.exp(res.thetaRE);
-            const cer = State.params.acr / 100; 
-            const eer = (cer * pooledOR) / (1 - cer + cer * pooledOR);
-            const arr = cer - eer;
-            const nnt = arr !== 0 ? Math.abs(1/arr) : Infinity;
+            const cer = State.params.acr / 100;
+            const util = Stats.clinicalUtility(res.thetaRE, cer);
+            const pooledOR = util.or;
+            const arr = util.arr;
+            const nnt = util.nnt;
             const nntDisplay = arr > 0 ? Math.ceil(nnt) : (arr < 0 ? `NNH ${Math.ceil(nnt)}` : '∞');
             
             document.getElementById('util-or').innerText = pooledOR.toFixed(2);
@@ -596,9 +603,8 @@
 
             // Calc SE from CI (Assumes Symmetric 95% on Log scale)
             const logOR = Math.log(or);
-            const logLow = Math.log(low);
-            const logHigh = Math.log(high);
-            const se = (logHigh - logLow) / 3.92;
+            const se = Stats.seFromCI(low, high);
+            if(se === null) { alert("Invalid CI: could not derive SE."); return; }
 
             const t = {id, year, log_or: logOR, se, n, source: 'manual'};
             State.trials.push(t);

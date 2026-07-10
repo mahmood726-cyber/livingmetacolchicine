@@ -8,7 +8,7 @@ let jstatMod;
 try { jstatMod = require('./jstat.min.js'); } catch (e) {}
 if (jstatMod) { globalThis.jStat = jstatMod.jStat || jstatMod; }
 
-const { Stats, analyze, getTCrit } = require('./engine.js');
+const { Stats, analyze, getTCrit, pickArms, orFrom2x2, seFromCI, clinicalUtility } = require('./engine.js');
 
 let passed = 0, failed = 0;
 function approx(label, got, exp, tol) {
@@ -166,6 +166,85 @@ const exEg = analyze([
 ]);
 check('Egger p finite for varied SEs', Number.isFinite(exEg.eggerP));
 check('Egger p in [0,1]', exEg.eggerP >= 0 && exEg.eggerP <= 1);
+
+// ----------------------------------------------------------------------------
+// 8. F1 regression — arm matching by label, NOT by position (sign-inversion guard)
+//    CT.gov arm order is not guaranteed intervention-first. A control-first study
+//    with positional tIdx=0,cIdx=1 would invert the OR. pickArms must identify the
+//    colchicine arm by label regardless of order.
+//    Concrete case: Placebo listed at index 0 (100/1000), Colchicine at index 1 (50/1000).
+//    True treatment=colchicine 50/1000, control=placebo 100/1000:
+//      a=50,b=950,c_=100,d=900 => OR=(50*900)/(950*100)=0.473684..., log=-0.747214...
+//    Positional [0,1] would give the inverse: log=+0.747214 (the bug).
+// ----------------------------------------------------------------------------
+const intr = /colchicine/i;
+const armsCtrlFirst = pickArms(['Placebo', 'Colchicine 0.5mg'], intr);
+check('pickArms control-first: tIdx=1', armsCtrlFirst && armsCtrlFirst.tIdx === 1);
+check('pickArms control-first: cIdx=0', armsCtrlFirst && armsCtrlFirst.cIdx === 0);
+const armsIntrFirst = pickArms(['Colchicine', 'Placebo'], intr);
+check('pickArms intervention-first: tIdx=0,cIdx=1',
+    armsIntrFirst && armsIntrFirst.tIdx === 0 && armsIntrFirst.cIdx === 1);
+// "Colchicine Placebo" must be classified as control (placebo keyword wins)
+const armsTrick = pickArms(['Colchicine', 'Colchicine Placebo'], intr);
+check('pickArms: "X Placebo" is control not treatment',
+    armsTrick && armsTrick.tIdx === 0 && armsTrick.cIdx === 1);
+// Fail closed when arms cannot be identified
+check('pickArms fails closed: no control arm', pickArms(['Colchicine', 'Aspirin'], intr) === null);
+check('pickArms fails closed: <2 labels', pickArms(['Colchicine'], intr) === null);
+check('pickArms fails closed: non-array', pickArms(null, intr) === null);
+// End-to-end sign check via orFrom2x2 using the pickArms-selected indices
+(function () {
+    const values = { 0: 100, 1: 50 };   // index0=Placebo events, index1=Colchicine events
+    const ns = { 0: 1000, 1: 1000 };
+    const a = pickArms(['Placebo', 'Colchicine'], intr);
+    const or2 = orFrom2x2(values[a.tIdx], values[a.cIdx], ns[a.tIdx], ns[a.cIdx]);
+    approx('F1 end-to-end log_or is protective (-0.747214)', or2.log_or, Math.log((50*900)/(950*100)), 1e-9);
+    check('F1 end-to-end log_or is negative (not sign-inverted)', or2.log_or < 0);
+})();
+
+// ----------------------------------------------------------------------------
+// 9. F2 — orFrom2x2 with conditional Haldane correction (hand-derived)
+//    Normal case: t=50/1000, c=100/1000 => a=50,b=950,c_=100,d=900
+//      log_or = log((50*900)/(950*100)) ; se = sqrt(1/50+1/950+1/100+1/900)
+// ----------------------------------------------------------------------------
+const o2 = orFrom2x2(50, 100, 1000, 1000);
+approx('orFrom2x2 normal log_or', o2.log_or, Math.log((50*900)/(950*100)), 1e-12);
+approx('orFrom2x2 normal se', o2.se, Math.sqrt(1/50 + 1/950 + 1/100 + 1/900), 1e-12);
+//    Zero event cell: t=0/1000 => Haldane +0.5 => a=0.5,b=1000.5,c_=100.5,d=900.5
+const o2z = orFrom2x2(0, 100, 1000, 1000);
+approx('orFrom2x2 zero-cell log_or (Haldane 0.5)',
+    o2z.log_or, Math.log((0.5*900.5)/(1000.5*100.5)), 1e-12);
+approx('orFrom2x2 zero-cell se (Haldane 0.5)',
+    o2z.se, Math.sqrt(1/0.5 + 1/1000.5 + 1/100.5 + 1/900.5), 1e-12);
+//    All-events cell: tN===tVal => Haldane. t=1000/1000 => a=1000.5,b=0.5,...
+const o2a = orFrom2x2(1000, 100, 1000, 1000);
+approx('orFrom2x2 all-events-cell log_or (Haldane 0.5)',
+    o2a.log_or, Math.log((1000.5*900.5)/(0.5*100.5)), 1e-12);
+//    Fail-closed guards
+check('orFrom2x2 null on events > N', orFrom2x2(1200, 100, 1000, 1000) === null);
+check('orFrom2x2 null on N<=0', orFrom2x2(50, 100, 0, 1000) === null);
+check('orFrom2x2 null on NaN', orFrom2x2(NaN, 100, 1000, 1000) === null);
+
+// ----------------------------------------------------------------------------
+// 10. F3 — seFromCI and clinicalUtility edge cases
+//     seFromCI: symmetric 95% log-scale. OR=0.7, CI 0.5-0.98:
+//       se = (log(0.98)-log(0.5))/3.92
+// ----------------------------------------------------------------------------
+approx('seFromCI(0.5,0.98)', seFromCI(0.5, 0.98), (Math.log(0.98) - Math.log(0.5)) / 3.92, 1e-12);
+check('seFromCI null when low>=high', seFromCI(0.98, 0.5) === null);
+check('seFromCI null when low<=0', seFromCI(0, 0.98) === null);
+//     clinicalUtility: thetaRE=0 => OR=1 => eer=cer => arr=0 => NNT=Infinity
+const uNull = clinicalUtility(0, 0.10);
+approx('clinicalUtility OR=1 when thetaRE=0', uNull.or, 1, 1e-12);
+approx('clinicalUtility arr=0 when OR=1', uNull.arr, 0, 1e-12);
+check('clinicalUtility NNT=Infinity when arr=0', uNull.nnt === Infinity);
+//     Protective: thetaRE=log(0.5), cer=0.10 => OR=0.5
+//       eer = (0.10*0.5)/(1-0.10+0.10*0.5) = 0.05/0.95 = 0.0526315789...
+//       arr = 0.10 - 0.0526315789 = 0.0473684210..., nnt = 1/arr = 21.111...
+const uProt = clinicalUtility(Math.log(0.5), 0.10);
+approx('clinicalUtility eer (protective)', uProt.eer, 0.05/0.95, 1e-12);
+approx('clinicalUtility arr (protective)', uProt.arr, 0.10 - 0.05/0.95, 1e-12);
+approx('clinicalUtility nnt (protective)', uProt.nnt, 1/(0.10 - 0.05/0.95), 1e-9);
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
